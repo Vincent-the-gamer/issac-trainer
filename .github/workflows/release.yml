@@ -1,0 +1,164 @@
+name: Release
+
+# 推送 v* tag 触发发布；也可在 Actions 页面手动运行（用 tauri.conf.json 里的版本号）。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+permissions:
+  contents: read
+
+jobs:
+  meta:
+    name: Resolve version / tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from tauri.conf.json
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ -z "$VERSION" ]; then
+            echo "::error::failed to read version from src-tauri/tauri.conf.json"
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="$GITHUB_REF_NAME"
+            if [ "$TAG" != "v$VERSION" ]; then
+              echo "::warning::tag $TAG does not match tauri.conf.json version v$VERSION"
+            fi
+          else
+            TAG="v$VERSION"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "building Isaac Trainer $TAG (version $VERSION)"
+
+  build:
+    name: Build (x86_64-pc-windows-msvc)
+    needs: meta
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # 显式初始化 MSVC x64 工具链（link.exe / Windows SDK 等），
+      # 保证 cargo 走 msvc target 而不是 gnu。
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: msvc-x64
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # tauri.conf.json 的 beforeBuildCommand 会先跑前端构建，
+      # 然后编译 Rust 并产出 NSIS 安装包（bundle.targets = ["nsis"]）。
+      - name: Build Tauri app
+        run: pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis --ci
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.meta.outputs.version }}"
+          OUT="src-tauri/target/x86_64-pc-windows-msvc/release"
+
+          if [ ! -f "$OUT/isaac-trainer.exe" ]; then
+            echo "::error::release binary not found at $OUT/isaac-trainer.exe"
+            exit 1
+          fi
+          if ! ls "$OUT"/bundle/nsis/*.exe >/dev/null 2>&1; then
+            echo "::error::NSIS installer not found in $OUT/bundle/nsis"
+            exit 1
+          fi
+
+          mkdir -p release
+          # 绿色版（单 exe，免安装）
+          cp "$OUT/isaac-trainer.exe" "release/Isaac-Trainer_${VERSION}_windows-x64_portable.exe"
+          # 安装包（文件名由 productName 生成，这里统一重命名）
+          for f in "$OUT"/bundle/nsis/*.exe; do
+            cp "$f" "release/Isaac-Trainer_${VERSION}_windows-x64_nsis-setup.exe"
+          done
+
+          ls -l release
+          (cd release && sha256sum * > SHA256SUMS.txt)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: isaac-trainer-windows-x64
+          path: release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    needs: [meta, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ls -l artifacts
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists, uploading with --clobber"
+            gh release upload "$TAG" artifacts/* --clobber
+          else
+            gh release create "$TAG" artifacts/* \
+              --title "Isaac Trainer $TAG" \
+              --target "$GITHUB_SHA" \
+              --generate-notes
+          fi
