@@ -52,9 +52,9 @@ Rust + Tauri 2 的桌面 UI，游戏侧走**官方 Modding API**（一个配套 
 ## 开发 / 打包
 
 ```bash
-npm install
-npm run app:dev      # 开发模式（热重载）
-npm run app:build    # 产出 src-tauri/target/release/isaac-trainer.exe
+pnpm i
+pnpm run app:dev      # 开发模式（热重载）
+pnpm run app:build    # 产出 src-tauri/target/release/isaac-trainer.exe
 ```
 
 > `app:build` 用了 `--no-bundle`，只产出一个绿色 exe，不需要下载 WiX/NSIS。
