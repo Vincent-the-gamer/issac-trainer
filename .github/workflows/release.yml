@@ -143,6 +143,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 本 job 没有 checkout，gh 需要显式指定仓库，
+          # 否则会去读本地 git remote 并报 "not a git repository"。
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.meta.outputs.tag }}
         run: |
           set -euo pipefail
