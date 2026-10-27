@@ -1,4 +1,7 @@
-# Isaac Trainer
+<div align="center">
+    <img src=".github/preview.png" style="height: 200px;"/>
+    <h1>Issac Trainer</h1>
+</div>
 
 > [!WARNING]
 > 本项目为使用Agent逆向Windows的《以撒的结合》客户端所构建，目前未测试在其它操作系统的可用性，但保证Windows可用
