@@ -1,10 +1,10 @@
 name: Release
 
-# 推送 v* tag 触发发布；也可在 Actions 页面手动运行（用 tauri.conf.json 里的版本号）。
+# 推送到 release 分支触发发布；也可在 Actions 页面手动运行（用 tauri.conf.json 里的版本号）。
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - release
   workflow_dispatch:
 
 concurrency:
@@ -39,14 +39,9 @@ jobs:
             exit 1
           fi
 
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            TAG="$GITHUB_REF_NAME"
-            if [ "$TAG" != "v$VERSION" ]; then
-              echo "::warning::tag $TAG does not match tauri.conf.json version v$VERSION"
-            fi
-          else
-            TAG="v$VERSION"
-          fi
+          # 由分支推送触发时，tag 取自 tauri.conf.json 的版本号；
+          # 已存在的同名 release 会被覆盖上传，不存在则在该提交上创建。
+          TAG="v$VERSION"
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
