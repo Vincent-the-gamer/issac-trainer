@@ -1,5 +1,5 @@
 <div align="center">
-    <img src=".github/preview.png" style="height: 200px;"/>
+    <img src=".github/preview.png" style="height: 350px;"/>
     <h1>Issac Trainer</h1>
 </div>
 
